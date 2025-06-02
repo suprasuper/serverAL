@@ -20,10 +20,14 @@ function handleNewConnection(socket, io) {
   socket.on('joinGame', ({ gameId, playerName }) => {
     try {
       const numericGameId = Number(gameId);
-      const game = addPlayerToGame(numericGameId, playerName);
 
       // Stocker la correspondance joueur <-> socket
       playerSocketMap.set(playerName, socket.id);
+
+      
+      const game = addPlayerToGame(numericGameId, playerName);
+
+      
 
       // Ajouter la socket à la "room" correspondant à la partie
       socket.join(`game_${numericGameId}`);

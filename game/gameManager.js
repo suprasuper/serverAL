@@ -55,12 +55,10 @@ function addPlayerToGame(gameId, playerName) {
   if (game.players.length >= 5) throw new Error('Partie pleine');
 
   game.players.push({ player: playerName, role: null });
-
+  console.log("partie mise à jour : ",game)
   if (game.players.length === 5 && game.status !== 'started') {
     game.players = assignRoles(game.players.map(p => p.player));
     game.status = 'started';
-
-    assignRoles(game.players)
     console.log("partie demarré")
     console.log(game)
   }
