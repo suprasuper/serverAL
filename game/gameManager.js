@@ -57,10 +57,11 @@ function addPlayerToGame(gameId, playerName) {
   game.players.push({ player: playerName, role: null });
   console.log("partie mise à jour : ",game)
   if (game.players.length === 5 && game.status !== 'started') {
-    game.players = assignRoles(game.players.map(p => p.player));
+    // Assigner les rôles directement aux joueurs existants
+    const assignedRoles = assignRoles(game.players.map(p => p.player));
+    game.players = assignedRoles;  // Remplacer par les joueurs avec leurs rôles
     game.status = 'started';
-    console.log("partie demarré")
-    console.log(game)
+    console.log("partie démarrée avec les rôles :", game.players)
   }
 
   return game;
