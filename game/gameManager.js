@@ -55,14 +55,19 @@ function assignRoles(players) {
   }));
 }
 
-//Ajouter un joueur à la partie
 function addPlayerToGame(gameId, playerId, playerName, avatar) {
   const game = games.find(g => g.id === gameId);
   if (!game) throw new Error('Partie introuvable');
+  // Partie déjà commencée, joueur pas autorisé à rejoindre
+  if (game.status === 'started' && !game.allowedReconnectionIds?.includes(playerId)) {
+    throw new Error('La partie est déjà en cours. Reconnexion impossible.');
+  }
+  // Si déjà dans la partie, on renvoie simplement le game
   if (game.players.find(p => p.playerId === playerId)) return game;
-  if (game.players.length >= 5) throw new Error('Partie pleine');
+  if (game.players.length >= 5) {
+    throw new Error('Partie pleine');
+  }
   game.players.push({ playerId, playerName, role: null, avatar });
- 
   return game;
 }
 
@@ -74,6 +79,7 @@ function getGameById(gameId) {
 //Commencer la partie ( distribuer role)
 function startGame(gameId) {
   const game = games.find(g => g.id === gameId);
+  game.allowedReconnectionIds = game.players.map(p => p.playerId);
   if (!game) throw new Error('Partie introuvable');
   if (game.status === 'started') throw new Error('Partie déjà démarrée');
 

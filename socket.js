@@ -24,26 +24,18 @@ function handleNewConnection(socket, io) {
     try {
       const numericGameId = Number(gameId);
 
+      const game = addPlayerToGame(numericGameId, playerId, playerName, avatar);
+
+
       // Stocker la correspondance playerId -> socket.id
       playerSocketMap.set(playerId, socket.id);
-      const game = addPlayerToGame(numericGameId, playerId, playerName, avatar);
+
 
       // Ajouter la socket à la room de la partie
       socket.join(`game_${numericGameId}`);
-    
       // Envoyer à tous les joueurs la liste mise à jour
       io.to(`game_${numericGameId}`).emit('updatePlayers', game.players);
 
-      // Si la partie est démarrée, envoyer le rôle à chacun
-      // if (game.status === 'started') {
-      //   console.log("Tous les joueurs :", game.players);
-      //   game.players.forEach(({ playerId, role }) => {
-      //     const playerSocketId = playerSocketMap.get(playerId);
-      //     if (playerSocketId) {
-      //       io.to(playerSocketId).emit('roleAssigned', { role });
-      //     }
-      //   });
-      // }
 
       // Confirmer au joueur qui rejoint
       socket.emit('joinedGame', { game });
@@ -109,12 +101,6 @@ function handleNewConnection(socket, io) {
         socket.emit('errorMessage', 'Partie introuvable');
         return;
       }
-      // // Vérifie si le joueur est bien le créateur
-      // const isCreator = game.players[0].playerId === playerId;
-      // if (!isCreator) {
-      //   socket.emit('errorMessage', 'Seul le créateur peut démarrer la partie');
-      //   return;
-      // }
       // Vérifie que la partie contient bien 5 joueurs
       if (game.players.length !== 5) {
         socket.emit('errorMessage', 'La partie doit contenir exactement 5 joueurs pour commencer');
@@ -143,8 +129,8 @@ function handleNewConnection(socket, io) {
     const numericGameId = Number(gameId);
     console.log("Chrono start pour la partie : ", numericGameId)
     const game = getGameById(numericGameId);
-    game.startTime = Date.now();
 
+    game.startTime = Date.now();
     if (!game) {
       socket.emit('errorMessage', 'Partie introuvable');
       return;
