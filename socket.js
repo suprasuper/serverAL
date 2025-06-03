@@ -1,8 +1,9 @@
 const { Server } = require('socket.io');
-const { addPlayerToGame } = require('./game/gameManager');
+const { addPlayerToGame, startGame, getGameById, removePlayerFromGames, startRobotAudioLoop, stopRobotAudioLoop } = require('./game/gameManager');
 
 const playerSocketMap = new Map(); // Map playerName -> socket.id
 
+//Connexion a la socket
 function setupSocket(server) {
   const io = new Server(server, {
     cors: { origin: "*" },
@@ -14,82 +15,146 @@ function setupSocket(server) {
   });
 }
 
+//Ma fonction qui va créer tout les listener sur la socket
 function handleNewConnection(socket, io) {
   console.log('Nouveau joueur connecté:', socket.id);
 
-  socket.on('joinGame', ({ gameId, playerName }) => {
+  //Quand on rejoins le lobby
+  socket.on('joinGame', ({ gameId, playerName, playerId, avatar }) => {
     try {
       const numericGameId = Number(gameId);
-      console.log(`${playerName} tente de rejoindre la partie ${numericGameId}`);
 
-      // Stocker la correspondance joueur <-> socket
-      playerSocketMap.set(playerName, socket.id);
-      console.log('Map des sockets mise à jour:', Array.from(playerSocketMap.entries()));
+      // Stocker la correspondance playerId -> socket.id
+      playerSocketMap.set(playerId, socket.id);
+      const game = addPlayerToGame(numericGameId, playerId, playerName, avatar);
 
-      // Ajouter la socket à la "room" correspondant à la partie
+      // Ajouter la socket à la room de la partie
       socket.join(`game_${numericGameId}`);
-      
-      const game = addPlayerToGame(numericGameId, playerName);
-      console.log(`État de la partie après ajout de ${playerName}:`, game);
-
-      // Émettre à tous les joueurs dans la room la liste mise à jour
+    
+      // Envoyer à tous les joueurs la liste mise à jour
       io.to(`game_${numericGameId}`).emit('updatePlayers', game.players);
 
-      // Émettre l'événement playerJoined
-      io.to(`game_${numericGameId}`).emit('playerJoined', {
-        players: game.players,
-        gameId: numericGameId,
-        newPlayer: playerName
-      });
+      // Si la partie est démarrée, envoyer le rôle à chacun
+      // if (game.status === 'started') {
+      //   console.log("Tous les joueurs :", game.players);
+      //   game.players.forEach(({ playerId, role }) => {
+      //     const playerSocketId = playerSocketMap.get(playerId);
+      //     if (playerSocketId) {
+      //       io.to(playerSocketId).emit('roleAssigned', { role });
+      //     }
+      //   });
+      // }
 
-      // Si partie démarrée, envoyer le rôle assigné individuellement
-      if (game.status === 'started') {
-        console.log("La partie vient de démarrer, envoi des rôles...");
-        game.players.forEach(({ player, role }) => {
-          console.log(`Tentative d'envoi du rôle "${role}" à ${player}`);
-          const playerSocketId = playerSocketMap.get(player);
-          if (playerSocketId) {
-            console.log(`Socket trouvé pour ${player}: ${playerSocketId}, envoi du rôle...`);
-            io.to(playerSocketId).emit('roleAssigned', { role });
-          } else {
-            console.log(`⚠️ ERREUR: Socket non trouvé pour le joueur ${player}`);
-          }
-        });
-      }
-
-      // Confirmer au joueur qui vient de rejoindre
+      // Confirmer au joueur qui rejoint
       socket.emit('joinedGame', { game });
     } catch (error) {
-      console.error('Erreur lors du joinGame:', error);
+      console.error('Erreur lors de la connexion :', error);
       socket.emit('errorMessage', error.message);
     }
   });
 
-  socket.on('disconnect', () => {
-    console.log('Joueur déconnecté', socket.id);
-    let leftPlayerName;
-    
-    for (const [player, id] of playerSocketMap.entries()) {
+  //Quand on quitte le lobby
+  socket.on("leaveLobby", ({ gameId, playerId }) => {
+    const numericGameId = Number(gameId);
+    const game = getGameById(numericGameId);
+    if (!game) {
+      socket.emit("errorMessage", "Partie introuvable");
+      return;
+    }
+    // Supprimer le joueur de la partie
+    game.players = game.players.filter(p => p.playerId !== playerId);
+    // Supprimer le mapping socket
+    playerSocketMap.delete(playerId);
+    // Quitter la room
+    socket.leave(`game_${numericGameId}`);
+    // Notifier tous les autres joueurs
+    io.to(`game_${numericGameId}`).emit("updatePlayers", game.players);
+    // Optionnel : supprimer la partie si plus personne dedans
+    // if (game.players.length === 0) {
+    //   deleteGame(numericGameId); 
+    // }
+  });
+
+  //Quand on se deconnecte (onglet ou nav fermé)
+  socket.on("disconnect", () => {
+    console.log("Joueur déconnecté", socket.id);
+
+    let playerIdToRemove;
+    for (const [playerId, id] of playerSocketMap.entries()) {
       if (id === socket.id) {
-        leftPlayerName = player;
-        playerSocketMap.delete(player);
+        playerIdToRemove = playerId;
+        playerSocketMap.delete(playerId);
         break;
       }
     }
 
-    if (leftPlayerName) {
-      // Émettre l'événement playerLeft
-      for (const room of socket.rooms) {
-        if (room.startsWith('game_')) {
-          io.to(room).emit('playerLeft', {
-            players: [], // La liste sera mise à jour côté client
-            leftPlayer: leftPlayerName
-          });
-        }
-      }
+    if (!playerIdToRemove) return;
+
+    const result = removePlayerFromGames(playerIdToRemove);
+
+    if (result) {
+      const { gameId, updatedPlayers } = result;
+
+      // Notifie les autres joueurs de la mise à jour
+      io.to(`game_${gameId}`).emit("updatePlayers", updatedPlayers);
     }
   });
+
+  //Quand on commence la partie(distrubtion role)
+  socket.on('startGame', ({ gameId }) => {
+    try {
+      const numericGameId = Number(gameId);
+      const game = getGameById(numericGameId);
+      if (!game) {
+        socket.emit('errorMessage', 'Partie introuvable');
+        return;
+      }
+      // // Vérifie si le joueur est bien le créateur
+      // const isCreator = game.players[0].playerId === playerId;
+      // if (!isCreator) {
+      //   socket.emit('errorMessage', 'Seul le créateur peut démarrer la partie');
+      //   return;
+      // }
+      // Vérifie que la partie contient bien 5 joueurs
+      if (game.players.length !== 5) {
+        socket.emit('errorMessage', 'La partie doit contenir exactement 5 joueurs pour commencer');
+        return;
+      }
+      // Démarre la partie
+      const updatedGame = startGame(numericGameId);
+      // Envoie les rôles à chaque joueur
+      updatedGame.players.forEach(({ playerId, role }) => {
+        const playerSocketId = playerSocketMap.get(playerId);
+        if (playerSocketId) {
+          io.to(playerSocketId).emit('roleAssigned', { role });
+        }
+      });
+      // Notifie tout le monde que la partie commence
+      io.to(`game_${numericGameId}`).emit('gameStarted', updatedGame);
+    } catch (error) {
+      console.error("Erreur dans 'startGame':", error.message);
+      socket.emit('errorMessage', error.message);
+    }
+  });
+
+  //Quand on commence le chrono (on est dans la faille)
+  socket.on('startChrono', ({ gameId }) => {
+
+    const numericGameId = Number(gameId);
+    console.log("Chrono start pour la partie : ", numericGameId)
+    const game = getGameById(numericGameId);
+    game.startTime = Date.now();
+
+    if (!game) {
+      socket.emit('errorMessage', 'Partie introuvable');
+      return;
+    }
+
+    startRobotAudioLoop(numericGameId, io, playerSocketMap);
+  });
+
 }
+
 
 
 module.exports = {
