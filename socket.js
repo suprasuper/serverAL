@@ -19,14 +19,13 @@ function setupSocket(server) {
 function handleNewConnection(socket, io) {
   console.log('Nouveau joueur connecté:', socket.id);
 
-    //Quand on rejoins le lobby
+  //Quand on rejoins le lobby
   socket.on('joinGame', ({ gameId, playerName, playerId, avatar }) => {
     try {
       const numericGameId = Number(gameId);
 
       // Stocker la correspondance playerId -> socket.id
       playerSocketMap.set(playerId, socket.id);
-      console.log("Un joueur rejoins la partie")
       const game = addPlayerToGame(numericGameId, playerId, playerName, avatar);
 
       // Ajouter la socket à la room de la partie
@@ -54,7 +53,7 @@ function handleNewConnection(socket, io) {
     }
   });
 
-    //Quand on quitte le lobby
+  //Quand on quitte le lobby
   socket.on("leaveLobby", ({ gameId, playerId }) => {
     const numericGameId = Number(gameId);
     const game = getGameById(numericGameId);
@@ -76,7 +75,7 @@ function handleNewConnection(socket, io) {
     // }
   });
 
-    //Quand on se deconnecte (onglet ou nav fermé)
+  //Quand on se deconnecte (onglet ou nav fermé)
   socket.on("disconnect", () => {
     console.log("Joueur déconnecté", socket.id);
 
@@ -101,7 +100,7 @@ function handleNewConnection(socket, io) {
     }
   });
 
-    //Quand on commence la partie(distrubtion role)
+  //Quand on commence la partie(distrubtion role)
   socket.on('startGame', ({ gameId }) => {
     try {
       const numericGameId = Number(gameId);
@@ -127,8 +126,6 @@ function handleNewConnection(socket, io) {
       updatedGame.players.forEach(({ playerId, role }) => {
         const playerSocketId = playerSocketMap.get(playerId);
         if (playerSocketId) {
-          console.log("jenvoie le role à ", playerId)
-          console.log("son role est :", role)
           io.to(playerSocketId).emit('roleAssigned', { role });
         }
       });
@@ -140,10 +137,13 @@ function handleNewConnection(socket, io) {
     }
   });
 
-    //Quand on commence le chrono (on est dans la faille)
+  //Quand on commence le chrono (on est dans la faille)
   socket.on('startChrono', ({ gameId }) => {
+
     const numericGameId = Number(gameId);
+    console.log("Chrono start pour la partie : ", numericGameId)
     const game = getGameById(numericGameId);
+    game.startTime = Date.now();
 
     if (!game) {
       socket.emit('errorMessage', 'Partie introuvable');

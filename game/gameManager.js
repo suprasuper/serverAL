@@ -57,13 +57,11 @@ function assignRoles(players) {
 
 //Ajouter un joueur à la partie
 function addPlayerToGame(gameId, playerId, playerName, avatar) {
-  console.log("jajoute ", playerName)
   const game = games.find(g => g.id === gameId);
   if (!game) throw new Error('Partie introuvable');
   if (game.players.find(p => p.playerId === playerId)) return game;
   if (game.players.length >= 5) throw new Error('Partie pleine');
   game.players.push({ playerId, playerName, role: null, avatar });
-  console.log("nouvelle lsite de joueurs : ", game.players)
   // if (game.players.length === 5 && game.status !== 'started') {
   //   game.players = assignRoles(game.players); // 👈 passe les objets complets
   //   game.status = 'started';
@@ -117,35 +115,77 @@ function deleteGame(gameId) {
   }
 }
 
-//Commencer le robot sur le lobby
+//Renvoie le temps écoulé depuis le debut de la partie
+function getElapsedSeconds(game) {
+  if (!game.startTime) return 0;
+  return Math.floor((Date.now() - game.startTime) / 1000);
+}
+
+// Renvoie les audios pertinents en fonction du temps écoulé dans la partie
+function getAvailableAudioIds(seconds) {
+  if (seconds < 300) return [5, 6]; // Moins de 5 minutes
+  if (seconds < 900) return [2, 3, 7]; // Entre 5 et 15 minutes
+  return [6, 7]; // Plus de 15 minutes
+}
+
+// Fonction utilitaire pour tirer un élément au hasard d’un tableau
+function getRandomElement(array) {
+  return array[Math.floor(Math.random() * array.length)];
+}
+
+// Fonction principale pour démarrer les envois audio au robot
 function startRobotAudioLoop(gameId, io, playerSocketMap) {
   const game = getGameById(gameId);
   if (!game) return;
 
-  //On cherche dans la partie qui est le robot
+  // Initialise le moment de départ s’il n’existe pas
+  if (!game.startTime) {
+    game.startTime = Date.now();
+  }
+
+  // Trouver le joueur avec le rôle "Robot"
   const robotPlayer = game.players.find(p => p.role === 'Robot');
-  console.log("robot trouvé : ", robotPlayer)
   if (!robotPlayer) return;
 
-  //Cherche l'id socket du robot dans mon playerSocketMap
+  // Récupérer le socket ID du robot
   const robotSocketId = playerSocketMap.get(robotPlayer.playerId);
   if (!robotSocketId) return;
 
-  let audioIndex = 0;
-  const audioIds = [1, 2, 3, 4, 5];
+  // Stocker les IDs déjà envoyés
+  const usedAudioIds = new Set();
 
+  // Fonction pour envoyer un audio aléatoire non encore utilisé
+  const sendRandomAudio = () => {
+    const secondsElapsed = getElapsedSeconds(game);
+    const available = getAvailableAudioIds(secondsElapsed);
 
-  // Envoi immédiat du premier message
-  io.to(robotSocketId).emit('robotAudioMessage', { audioId: audioIds[0] });
-  audioIndex++;
+    // Filtrer ceux déjà utilisés
+    const remaining = available.filter(id => !usedAudioIds.has(id));
 
-  //Envoie tte les 7 minutes 
+    if (remaining.length === 0) {
+      console.log("Aucun nouvel audio à envoyer pour cette tranche de temps.");
+      return;
+    }
+
+    const randomAudioId = getRandomElement(remaining);
+    usedAudioIds.add(randomAudioId);
+
+    io.to(robotSocketId).emit('robotAudioMessage', { audioId: randomAudioId });
+    console.log(`Audio envoyé au robot (ID: ${randomAudioId})`);
+  };
+
+  // Envoi immédiat du premier audio
+  io.to(robotSocketId).emit('robotAudioMessage', { audioId: 1 })
+  setTimeout(() => {
+    io.to(robotSocketId).emit('robotAudioMessage', { audioId: 4 });
+  }, 30 * 1000);
+
+  // Envoi toutes les 7 minutes
   const intervalId = setInterval(() => {
-    const audioId = audioIds[audioIndex % audioIds.length];
-    io.to(robotSocketId).emit('robotAudioMessage', { audioId });
-    audioIndex++;
+    sendRandomAudio();
   }, 7 * 60 * 1000); // 7 minutes
 
+  // Stocker l'intervalle pour arrêt futur
   game.robotIntervalId = intervalId;
 
   console.log(`Loop audio démarrée pour Robot dans la partie ${gameId}`);
